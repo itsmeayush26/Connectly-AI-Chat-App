@@ -2,7 +2,7 @@
 # 💬 MERN Chat App ⚡ with Socket.IO
 
 
-LIVE LINK--->>>https://connectly-chat-app-frontend.onrender.com
+LIVE LINK--->>>https://connectly-chat-app-fronten.vercel.app
 
 A **real-time chat application** built using the **MERN stack** (MongoDB, Express, React, Node.js) and **Socket.IO** for live messaging. Includes online/offline indicators, typing effects, and clean UI/UX.  
 Perfect for 1-to-1 messaging with a modern tech stack! 🚀
