@@ -9,15 +9,24 @@ export const ChatProvider = ({ children }) => {
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [unseenMessages, setUnseenMessages] = useState({});
+  const [isAiReplying, setIsAiReplying] = useState(false);
 
-  const { socket, axios } = useContext(AuthContext);
+  // Dedicated state to preserve Connectly AI bot chat history
+  const [aiBotMessages, setAiBotMessages] = useState([
+    {
+      _id: "welcome-ai",
+      senderId: "ai-assistant-bot",
+      text: "Hello! 👋 I'm Connectly AI. You can ask me questions, ask me to draft messages, explain concepts, or brainstorm ideas. You can also talk to me with voice typing or listen with the 🔊 Read Aloud button. How can I help you today?",
+      createdAt: new Date().toISOString(),
+    },
+  ]);
 
-  //function to get all users for sidebar
- 
+  const { socket, axios, authUser } = useContext(AuthContext);
+
+  // function to get all users for sidebar
   const getUsers = async () => {
     try {
       const res = await axios.get("/api/messages/users");
-      // pull the array from whichever key it's under:
       const usersArray =
         res.data?.users ??
         res.data?.data?.users ??
@@ -31,12 +40,15 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
-
-  //function to get messages for selected users
+  // function to get messages for selected user
   const getMessages = async (userId) => {
+    if (selectedUser?.isAiBot || userId === "ai-assistant-bot") {
+      setMessages(aiBotMessages);
+      return;
+    }
+
     try {
       const { data } = await axios.get(`/api/messages/${userId}`);
-
       if (data.success) {
         setMessages(data.messages);
       }
@@ -45,8 +57,87 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
-  //function to send message to selected user
+  // function to send message to selected user
   const sendMessage = async (messageData) => {
+    // 1. Handle Connectly AI Bot chat
+    if (selectedUser?.isAiBot || selectedUser?._id === "ai-assistant-bot") {
+      const userMsg = {
+        _id: "user-" + Date.now(),
+        senderId: authUser?._id || "me",
+        text: messageData.text,
+        image: messageData.image,
+        audio: messageData.audio,
+        createdAt: new Date().toISOString(),
+      };
+
+      setMessages((prev) => [...prev, userMsg]);
+      setAiBotMessages((prev) => [...prev, userMsg]);
+
+      // If user sent an image
+      if (messageData.image && !messageData.text) {
+        const aiAck = {
+          _id: "bot-" + (Date.now() + 1),
+          senderId: "ai-assistant-bot",
+          text: "✨ Great image! What would you like to create or discuss next?",
+          createdAt: new Date().toISOString(),
+        };
+        setTimeout(() => {
+          setMessages((prev) => [...prev, aiAck]);
+          setAiBotMessages((prev) => [...prev, aiAck]);
+        }, 500);
+        return;
+      }
+
+      // If user sent a voice message
+      if (messageData.audio && !messageData.text) {
+        const aiAck = {
+          _id: "bot-" + (Date.now() + 1),
+          senderId: "ai-assistant-bot",
+          text: "🎙️ Voice message received! You can also use the 🔊 Read Aloud button on any of my messages to listen to replies, or tap the microphone to dictate via Voice Typing.",
+          createdAt: new Date().toISOString(),
+        };
+        setTimeout(() => {
+          setMessages((prev) => [...prev, aiAck]);
+          setAiBotMessages((prev) => [...prev, aiAck]);
+        }, 500);
+        return;
+      }
+
+      try {
+        setIsAiReplying(true);
+
+        const history = (aiBotMessages || []).slice(-6).map((m) => ({
+          role: m.senderId === "ai-assistant-bot" ? "assistant" : "user",
+          text: m.text || "",
+        }));
+
+        const { data } = await axios.post("/api/ai/assistant", {
+          prompt: messageData.text,
+          history,
+        });
+
+        if (data.success && data.reply) {
+          const aiMsg = {
+            _id: "bot-" + (Date.now() + 1),
+            senderId: "ai-assistant-bot",
+            text: data.reply,
+            createdAt: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, aiMsg]);
+          setAiBotMessages((prev) => [...prev, aiMsg]);
+        } else {
+          toast.error(data.message || "Connectly AI could not reply");
+        }
+      } catch (err) {
+        console.error("Connectly AI response error:", err);
+        toast.error("Connectly AI response error");
+      } finally {
+        setIsAiReplying(false);
+      }
+      return;
+    }
+
+    // 2. Standard human-to-human socket message
     try {
       const { data } = await axios.post(
         `/api/messages/send/${selectedUser._id}`,
@@ -61,8 +152,8 @@ export const ChatProvider = ({ children }) => {
       toast.error(error.message);
     }
   };
-  //function to subscribe to messages for selected user
 
+  // function to subscribe to messages for selected user
   const subscribeToMessages = async () => {
     if (!socket) return;
     socket.on("newMessage", (newMessage) => {
@@ -81,10 +172,11 @@ export const ChatProvider = ({ children }) => {
     });
   };
 
-  //function to unsubscribe from messages
+  // function to unsubscribe from messages
   const unsubscribeFromMessages = () => {
     if (socket) socket.off("newMessage");
   };
+
   useEffect(() => {
     subscribeToMessages();
     return () => unsubscribeFromMessages();
@@ -100,6 +192,7 @@ export const ChatProvider = ({ children }) => {
     setSelectedUser,
     unseenMessages,
     setUnseenMessages,
+    isAiReplying,
   };
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 };
